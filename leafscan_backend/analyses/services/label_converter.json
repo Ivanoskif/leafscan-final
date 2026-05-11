@@ -1,0 +1,66 @@
+{
+  "apple leaf healthy": {
+    "plant_name": "Apple",
+    "disease_name": ""
+  },
+  "apple leaf rust": {
+    "plant_name": "Apple",
+    "disease_name": "Leaf Rust"
+  },
+  "apple leaf scab": {
+    "plant_name": "Apple",
+    "disease_name": "Leaf Scab"
+  },
+  "corn gray leaf spot": {
+    "plant_name": "Corn",
+    "disease_name": "Gray Leaf Spot"
+  },
+  "corn leaf": {
+    "plant_name": "Corn",
+    "disease_name": ""
+  },
+  "corn leaf blight": {
+    "plant_name": "Corn",
+    "disease_name": "Leaf Blight"
+  },
+  "corn leaf rust": {
+    "plant_name": "Corn",
+    "disease_name": "Leaf Rust"
+  },
+  "potato leaf blight": {
+    "plant_name": "Potato",
+    "disease_name": "Leaf Blight"
+  },
+  "potato leafroll virus": {
+    "plant_name": "Potato",
+    "disease_name": "Leafroll Virus"
+  },
+  "tomato leaf bacterial spot": {
+    "plant_name": "Tomato",
+    "disease_name": "Bacterial Spot"
+  },
+  "tomato leaf early blight": {
+    "plant_name": "Tomato",
+    "disease_name": "Early Blight"
+  },
+  "tomato leaf healthy": {
+    "plant_name": "Tomato",
+    "disease_name": ""
+  },
+  "tomato leaf late blight": {
+    "plant_name": "Tomato",
+    "disease_name": "Late Blight"
+  },
+  "tomato leaf mold": {
+    "plant_name": "Tomato",
+    "disease_name": "Leaf Mold"
+  },
+  "tomato leaf powdery mildew": {
+    "plant_name": "Tomato",
+    "disease_name": "Powdery Mildew"
+  },
+  "tomato septoria leaf spot": {
+    "plant_name": "Tomato",
+    "disease_name": "Septoria Leaf Spot"
+  }
+}

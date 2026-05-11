@@ -1,0 +1,41 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.sqlite3
+*.db
+
+# Django
+leafscan_backend/media/
+leafscan_backend/staticfiles/
+leafscan_backend/.env
+
+# Virtual environments
+venv/
+.venv/
+env/
+ENV/
+
+# Node / React
+leafscan_web/node_modules/
+leafscan_web/build/
+leafscan_web/.env
+leafscan_web/.env.local
+leafscan_web/.env.development.local
+leafscan_web/.env.test.local
+leafscan_web/.env.production.local
+
+# IDE
+.idea/
+.vscode/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*

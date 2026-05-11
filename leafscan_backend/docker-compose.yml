@@ -1,0 +1,48 @@
+services:
+  db:
+    image: postgres:17
+    container_name: leafscan_postgres
+    restart: always
+    environment:
+      POSTGRES_DB: leafscan_db
+      POSTGRES_USER: leafscan_user
+      POSTGRES_PASSWORD: leafscan_password
+    ports:
+      - "5432:5432"
+    volumes:
+      - leafscan_postgres_data:/var/lib/postgresql/data
+
+  backend:
+    build: .
+    container_name: leafscan_backend
+    restart: always
+    command: python manage.py runserver 0.0.0.0:8000
+    volumes:
+      - .:/app
+    ports:
+      - "8000:8000"
+    env_file:
+      - .env
+    depends_on:
+      - db
+
+  frontend:
+    build:
+      context: ../leafscan_web
+      dockerfile: Dockerfile
+    container_name: leafscan_frontend
+    restart: always
+    ports:
+      - "3000:3000"
+    volumes:
+      - ../leafscan_web:/app
+      - /app/node_modules
+    environment:
+      - REACT_APP_API_URL=http://localhost:8000/api
+      - CHOKIDAR_USEPOLLING=true
+      - WATCHPACK_POLLING=true
+    depends_on:
+      - backend
+
+volumes:
+  leafscan_postgres_data:

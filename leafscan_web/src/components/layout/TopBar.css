@@ -1,0 +1,112 @@
+.topbar {
+    height: var(--topbar-h);
+    background: var(--card);
+    border-bottom: 1px solid var(--border);
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0 28px;
+    position: sticky;
+    top: 0;
+    z-index: 100;
+    gap: 16px;
+}
+
+/* Search */
+.topbar-search {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-xl);
+    padding: 9px 16px;
+    flex: 1;
+    max-width: 420px;
+    transition: border-color 0.15s;
+}
+.topbar-search:focus-within { border-color: var(--green); }
+.topbar-search-icon { font-size: 15px; color: var(--text-muted); }
+.topbar-search-input {
+    background: transparent;
+    border: none;
+    outline: none;
+    font-size: 14px;
+    color: var(--text-dark);
+    width: 100%;
+}
+.topbar-search-input::placeholder { color: var(--text-muted); }
+
+/* Right */
+.topbar-right {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-shrink: 0;
+}
+
+.topbar-icon-btn {
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    padding: 8px 12px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-md);
+    font-size: 14px;
+    color: var(--text-dark);
+    position: relative;
+    transition: background 0.15s;
+}
+.topbar-icon-btn:hover { background: var(--border); }
+.topbar-lang { font-size: 12px; font-weight: 600; }
+
+.topbar-notif { padding: 8px 10px; }
+.topbar-notif-dot {
+    position: absolute;
+    top: 6px; right: 6px;
+    width: 8px; height: 8px;
+    background: var(--orange);
+    border-radius: 50%;
+    border: 2px solid var(--card);
+}
+
+/* User */
+.topbar-user {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 6px 12px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-md);
+    cursor: pointer;
+    transition: background 0.15s;
+}
+.topbar-user:hover { background: var(--border); }
+.topbar-avatar {
+    width: 34px; height: 34px;
+    border-radius: 50%;
+    background: var(--green);
+    color: #fff;
+    font-size: 14px;
+    font-weight: 700;
+    display: flex; align-items: center; justify-content: center;
+    flex-shrink: 0;
+}
+.topbar-user-name {
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--text-dark);
+    white-space: nowrap;
+}
+.topbar-user-email {
+    font-size: 11px;
+    color: var(--text-muted);
+    white-space: nowrap;
+}
+
+@media (max-width: 640px) {
+    .topbar-user-info { display: none; }
+    .topbar-search { max-width: 200px; }
+}
