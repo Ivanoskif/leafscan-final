@@ -1,24 +1,36 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import {
   Plus, Search, X, Pencil, Trash2,
   ChevronUp, ChevronDown, AlertTriangle,
   Leaf, MapPin, Sun, Tag, FileText
 } from 'lucide-react';
 import { useLang } from '../../context/LanguageContext';
+import { plantsAPI, resolveMediaUrl } from '../../services/api';
 import './Plants.css';
 
-const MOCK_PLANTS = [
-  { id: 1, name: 'Tomato',      scientific_name: 'Solanum lycopersicum',  type: 'VEGETABLE',   description: 'One of the most widely grown vegetables. Thrives in warm climates with plenty of sunlight.', growing_season: 'Spring - Summer', growing_region: 'Mediterranean', image: null },
-  { id: 2, name: 'Potato',      scientific_name: 'Solanum tuberosum',     type: 'VEGETABLE',   description: 'A starchy root vegetable and one of the world\'s most important food crops.', growing_season: 'Spring - Fall',   growing_region: 'Temperate',      image: null },
-  { id: 3, name: 'Rose',        scientific_name: 'Rosa',                  type: 'FLOWER',      description: 'A woody perennial flowering plant known for its beauty and fragrance.', growing_season: 'Spring - Summer', growing_region: 'Worldwide',      image: null },
-  { id: 4, name: 'Corn',        scientific_name: 'Zea mays',              type: 'CROP',        description: 'A large grain plant first domesticated by indigenous peoples in southern Mexico.', growing_season: 'Spring - Summer', growing_region: 'Americas',       image: null },
-  { id: 5, name: 'Grape',       scientific_name: 'Vitis vinifera',        type: 'FRUIT',       description: 'A fruit-bearing vine widely grown for wine production and fresh consumption.', growing_season: 'Summer - Fall',   growing_region: 'Mediterranean',  image: null },
-  { id: 6, name: 'Basil',       scientific_name: 'Ocimum basilicum',      type: 'HERB',        description: 'A culinary herb of the family Lamiaceae. Used in cooking worldwide.', growing_season: 'Spring - Summer', growing_region: 'Tropical',       image: null },
-  { id: 7, name: 'Apple',       scientific_name: 'Malus domestica',       type: 'FRUIT',       description: 'A deciduous tree widely cultivated for its edible fruit.', growing_season: 'Summer - Fall',   growing_region: 'Temperate',      image: null },
-  { id: 8, name: 'Sunflower',   scientific_name: 'Helianthus annuus',     type: 'CROP',        description: 'A large annual forb native to North America, grown for its seeds and oil.', growing_season: 'Spring - Summer', growing_region: 'Worldwide',      image: null },
-  { id: 9, name: 'Oak',         scientific_name: 'Quercus',               type: 'TREE',        description: 'A tree or shrub in the genus Quercus, known for its strength and longevity.', growing_season: 'Year-round',      growing_region: 'Northern Hemisphere', image: null },
-  { id: 10, name: 'Lavender',   scientific_name: 'Lavandula',             type: 'ORNAMENTAL',  description: 'A genus of flowering plants known for its fragrance and purple flowers.', growing_season: 'Spring - Summer', growing_region: 'Mediterranean',  image: null },
-];
+// Конвертира plain објект (со опционен File за `image`) во FormData,
+// бидејќи Django ModelSerializer го очекува multipart кога има file.
+function toPlantFormData(data) {
+  const form = new FormData();
+  Object.entries(data).forEach(([k, v]) => {
+    if (v === null || v === undefined) return;
+    if (k === 'id') return;
+    form.append(k, v);
+  });
+  return form;
+}
+
+function hasFile(data) {
+  return data?.image instanceof File;
+}
+
+// Backend може да враќа array директно, или paginated `{ results: [...] }`.
+function unwrapList(resp) {
+  const d = resp?.data;
+  if (Array.isArray(d)) return d;
+  if (Array.isArray(d?.results)) return d.results;
+  return [];
+}
 
 const TYPE_OPTIONS = ['CROP', 'FRUIT', 'VEGETABLE', 'HERB', 'FLOWER', 'TREE', 'ORNAMENTAL', 'OTHER'];
 
@@ -72,6 +84,21 @@ function DetailModal({ plant, onEdit, onClose, t }) {
             </button>
           </div>
           <div className="modal-body">
+            {resolveMediaUrl(plant.image) && (
+              <div style={{ marginBottom: 16 }}>
+                <img
+                  src={resolveMediaUrl(plant.image)}
+                  alt={plant.name}
+                  style={{
+                    width: '100%',
+                    maxHeight: 240,
+                    objectFit: 'cover',
+                    borderRadius: 12,
+                    border: '1px solid var(--border, #243028)',
+                  }}
+                />
+              </div>
+            )}
             <div className="detail-row">
               <div className="detail-item">
                 <div className="detail-label"><Sun size={13} strokeWidth={1.8} /> Growing Season</div>
@@ -110,7 +137,7 @@ function FormModal({ plant, onSave, onClose, t }) {
             growing_region: plant.growing_region, image: plant.image }
           : { ...EMPTY_FORM }
   );
-  const [preview, setPreview] = useState(isEdit ? plant.image : null);
+  const [preview, setPreview] = useState(isEdit ? resolveMediaUrl(plant.image) : null);
   const [errors,  setErrors]  = useState({});
   const set = (k, v) => setForm(f => ({ ...f, [k]: v }));
 
@@ -244,7 +271,9 @@ function DeleteModal({ plant, onConfirm, onCancel, t }) {
 // ── Main page ─────────────────────────────────────────────────────────────────
 export default function Plants() {
   const { t } = useLang();
-  const [plants,   setPlants]   = useState(MOCK_PLANTS);
+  const [plants,   setPlants]   = useState([]);
+  const [loading,  setLoading]  = useState(true);
+  const [loadError,setLoadError]= useState('');
   const [search,   setSearch]   = useState('');
   const [filterType, setFilterType] = useState('ALL');
   const [sortKey,  setSortKey]  = useState('name');
@@ -252,11 +281,32 @@ export default function Plants() {
   const [modal,    setModal]    = useState(null);
   const [selected, setSelected] = useState(null);
 
+  // ── Fetch all plants on mount ───────────────────────────────────────────────
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      setLoading(true);
+      setLoadError('');
+      try {
+        const res = await plantsAPI.getAll();
+        if (cancelled) return;
+        setPlants(unwrapList(res));
+      } catch (err) {
+        if (cancelled) return;
+        setLoadError(err?.response?.data?.detail || err?.message || 'Failed to load plants');
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, []);
+
   const filtered = plants
       .filter(p => {
         const q = search.toLowerCase();
-        const matchSearch = p.name.toLowerCase().includes(q) ||
-            p.scientific_name.toLowerCase().includes(q);
+        const name = (p.name || '').toLowerCase();
+        const sci  = (p.scientific_name || '').toLowerCase();
+        const matchSearch = name.includes(q) || sci.includes(q);
         const matchType = filterType === 'ALL' || p.type === filterType;
         return matchSearch && matchType;
       })
@@ -276,14 +326,37 @@ export default function Plants() {
           ? <ChevronUp size={12} color="var(--green-light)" />
           : <ChevronDown size={12} color="var(--green-light)" />;
 
-  const handleSave = data => {
-    if (data.id) setPlants(p => p.map(pl => pl.id === data.id ? data : pl));
-    else         setPlants(p => [...p, { ...data, id: Date.now() }]);
+  const handleSave = async data => {
+    try {
+      const useMultipart = hasFile(data);
+      const payload = useMultipart ? toPlantFormData(data) : data;
+      let res;
+      if (data.id) {
+        res = await plantsAPI.patch(data.id, payload);
+        const saved = res.data;
+        setPlants(p => p.map(pl => pl.id === data.id ? saved : pl));
+      } else {
+        res = await plantsAPI.create(payload);
+        const created = res.data;
+        setPlants(p => [...p, created]);
+      }
+    } catch (err) {
+      const msg = err?.response?.data?.detail || err?.message || 'Failed to save plant';
+      alert(msg);
+      return;
+    }
     setModal(null); setSelected(null);
   };
 
-  const handleDelete = () => {
-    setPlants(p => p.filter(pl => pl.id !== selected.id));
+  const handleDelete = async () => {
+    if (!selected?.id) { setModal(null); setSelected(null); return; }
+    try {
+      await plantsAPI.delete(selected.id);
+      setPlants(p => p.filter(pl => pl.id !== selected.id));
+    } catch (err) {
+      alert(err?.response?.data?.detail || err?.message || 'Failed to delete plant');
+      return;
+    }
     setModal(null); setSelected(null);
   };
 
@@ -331,7 +404,22 @@ export default function Plants() {
               </tr>
               </thead>
               <tbody>
-              {filtered.length === 0 ? (
+              {loading ? (
+                  <tr><td colSpan={5}>
+                    <div className="dis-empty">
+                      <div className="dis-empty-icon">⏳</div>
+                      <div className="dis-empty-title">Loading…</div>
+                    </div>
+                  </td></tr>
+              ) : loadError ? (
+                  <tr><td colSpan={5}>
+                    <div className="dis-empty">
+                      <div className="dis-empty-icon">⚠️</div>
+                      <div className="dis-empty-title">{loadError}</div>
+                      <div className="dis-empty-sub">Check the backend is running.</div>
+                    </div>
+                  </td></tr>
+              ) : filtered.length === 0 ? (
                   <tr><td colSpan={5}>
                     <div className="dis-empty">
                       <div className="dis-empty-icon">🌿</div>
@@ -343,8 +431,17 @@ export default function Plants() {
                   <tr key={p.id} className="dis-row" onClick={() => { setSelected(p); setModal('detail'); }}>
                     <td>
                       <div className="plant-name-cell">
-                        <div className="plant-icon-sm">
-                          <Leaf size={14} strokeWidth={1.8} color="var(--green-light)" />
+                        <div
+                          className="plant-icon-sm"
+                          style={resolveMediaUrl(p.image) ? {
+                            backgroundImage: `url(${resolveMediaUrl(p.image)})`,
+                            backgroundSize: 'cover',
+                            backgroundPosition: 'center',
+                          } : undefined}
+                        >
+                          {!resolveMediaUrl(p.image) && (
+                            <Leaf size={14} strokeWidth={1.8} color="var(--green-light)" />
+                          )}
                         </div>
                         <span className="dis-name">{p.name}</span>
                       </div>

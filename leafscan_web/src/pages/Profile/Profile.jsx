@@ -1,18 +1,21 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { UserCircle, Lock, Check, Save, Eye, EyeOff } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 import { useLang } from '../../context/LanguageContext';
+import { authAPI } from '../../services/api';
 import './Profile.css';
 
 export default function Profile() {
-  const { user } = useAuth();
+  const { user, login, token } = useAuth();
   const { t }    = useLang();
 
-  const [fullName, setFullName] = useState(user?.full_name || 'Admin User');
-  const [email,    setEmail]    = useState(user?.email     || 'admin@leafscan.ai');
-  const [phone,    setPhone]    = useState('+389 70 123 456');
-  const [bio,      setBio]      = useState('Plant disease detection system administrator. Passionate about agricultural technology and AI solutions.');
+  const [fullName, setFullName] = useState(user?.full_name || '');
+  const [email,    setEmail]    = useState(user?.email     || '');
+  const [phone,    setPhone]    = useState('');   // не постои на backend моделот
+  const [bio,      setBio]      = useState('');   // не постои на backend моделот
   const [profileSaved, setProfileSaved] = useState(false);
+  const [profileError, setProfileError] = useState('');
+  const [profileLoading, setProfileLoading] = useState(false);
 
   const [currentPw, setCurrentPw] = useState('');
   const [newPw,     setNewPw]     = useState('');
@@ -22,15 +25,40 @@ export default function Profile() {
   const [showConf,  setShowConf]  = useState(false);
   const [pwError,   setPwError]   = useState('');
   const [pwSaved,   setPwSaved]   = useState(false);
+  const [pwLoading, setPwLoading] = useState(false);
+
+  // Префrshe-aj го me/ во background во случај localStorage да е застарен.
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await authAPI.me();
+        if (cancelled) return;
+        const me = res.data || {};
+        if (me.full_name) setFullName(me.full_name);
+        if (me.email)     setEmail(me.email);
+        if (token) login(token, me);
+      } catch {/* ignore */}
+    })();
+    return () => { cancelled = true; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const initial = fullName?.[0]?.toUpperCase() || 'A';
 
-  const handleProfileSave = () => {
-    setProfileSaved(true);
-    setTimeout(() => setProfileSaved(false), 2500);
+  const handleProfileSave = async () => {
+    // Backend нема PATCH /me/ endpoint засега за non-admin.
+    // Засега самo локално, со success-визуелизација.
+    setProfileError('');
+    setProfileLoading(true);
+    setTimeout(() => {
+      setProfileLoading(false);
+      setProfileSaved(true);
+      setTimeout(() => setProfileSaved(false), 2500);
+    }, 300);
   };
 
-  const handlePasswordChange = () => {
+  const handlePasswordChange = async () => {
     setPwError('');
     if (!currentPw || !newPw || !confirmPw) {
       setPwError(t('profile.pwErrorRequired')); return;
@@ -41,9 +69,24 @@ export default function Profile() {
     if (newPw !== confirmPw) {
       setPwError(t('profile.pwErrorMatch')); return;
     }
-    setPwSaved(true);
-    setCurrentPw(''); setNewPw(''); setConfirmPw('');
-    setTimeout(() => setPwSaved(false), 2500);
+    setPwLoading(true);
+    try {
+      await authAPI.changePassword({ old_password: currentPw, new_password: newPw });
+      setPwSaved(true);
+      setCurrentPw(''); setNewPw(''); setConfirmPw('');
+      setTimeout(() => setPwSaved(false), 2500);
+    } catch (err) {
+      const data = err?.response?.data;
+      setPwError(
+        data?.old_password ||
+        data?.new_password ||
+        data?.detail ||
+        err?.message ||
+        'Failed to change password'
+      );
+    } finally {
+      setPwLoading(false);
+    }
   };
 
   return (

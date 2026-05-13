@@ -1,11 +1,30 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import {
     Plus, Search, Pencil, Trash2,
     ChevronUp, ChevronDown, X, AlertTriangle,
     Leaf, Thermometer, FileText, Activity
 } from 'lucide-react';
 import { useLang } from '../../context/LanguageContext';
+import { diseasesAPI, resolveMediaUrl } from '../../services/api';
 import './Diseases.css';
+
+// Helpers: support multipart upload for image + handle paginated responses.
+function toDiseaseFormData(data) {
+    const form = new FormData();
+    Object.entries(data).forEach(([k, v]) => {
+        if (v === null || v === undefined) return;
+        if (k === 'id') return;
+        form.append(k, v);
+    });
+    return form;
+}
+function hasFile(data) { return data?.image instanceof File; }
+function unwrapList(resp) {
+    const d = resp?.data;
+    if (Array.isArray(d)) return d;
+    if (Array.isArray(d?.results)) return d.results;
+    return [];
+}
 
 // ── Mock data ─────────────────────────────────────────────────────────────────
 const MOCK_DISEASES = [
@@ -82,6 +101,26 @@ function DetailModal({ disease, onEdit, onClose, t }) {
                 </div>
 
                 <div className="modal-body">
+                    {resolveMediaUrl(disease.image) && (
+                        <div style={{ marginBottom: 16 }}>
+                            <img
+                                src={resolveMediaUrl(disease.image)}
+                                alt={disease.name}
+                                style={{
+                                    width: '100%',
+                                    maxHeight: 240,
+                                    objectFit: 'cover',
+                                    borderRadius: 12,
+                                    border: '1px solid var(--border, #243028)',
+                                }}
+                            />
+                            {disease.image_description && (
+                                <p style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 6 }}>
+                                    {disease.image_description}
+                                </p>
+                            )}
+                        </div>
+                    )}
                     <div className="detail-section">
                         <div className="detail-section-title">
                             <FileText size={14} strokeWidth={1.8} />
@@ -119,7 +158,7 @@ function FormModal({ disease, onSave, onClose, t }) {
                 image: disease.image || null, image_description: disease.image_description || '' }
             : { ...EMPTY_FORM }
     );
-    const [preview, setPreview] = useState(isEdit ? disease.image : null);
+    const [preview, setPreview] = useState(isEdit ? resolveMediaUrl(disease.image) : null);
     const [errors,  setErrors]  = useState({});
     const set = (k, v) => setForm(f => ({ ...f, [k]: v }));
 
@@ -247,7 +286,9 @@ function DeleteModal({ disease, onConfirm, onCancel, t }) {
 // ── Main page ─────────────────────────────────────────────────────────────────
 export default function Diseases() {
     const { t } = useLang();
-    const [diseases,   setDiseases]   = useState(MOCK_DISEASES);
+    const [diseases,   setDiseases]   = useState([]);
+    const [loading,    setLoading]    = useState(true);
+    const [loadError,  setLoadError]  = useState('');
     const [search,     setSearch]     = useState('');
     const [filterSev,  setFilterSev]  = useState('ALL');
     const [filterCat,  setFilterCat]  = useState('ALL');
@@ -256,11 +297,32 @@ export default function Diseases() {
     const [modal,      setModal]      = useState(null);
     const [selected,   setSelected]   = useState(null);
 
+    useEffect(() => {
+        let cancelled = false;
+        (async () => {
+            setLoading(true);
+            setLoadError('');
+            try {
+                const res = await diseasesAPI.getAll();
+                if (cancelled) return;
+                setDiseases(unwrapList(res));
+            } catch (err) {
+                if (cancelled) return;
+                setLoadError(err?.response?.data?.detail || err?.message || 'Failed to load diseases');
+            } finally {
+                if (!cancelled) setLoading(false);
+            }
+        })();
+        return () => { cancelled = true; };
+    }, []);
+
     const filtered = diseases
         .filter(d => {
             const q = search.toLowerCase();
+            const name = (d.name || '').toLowerCase();
+            const cat  = (d.category || '').toLowerCase();
             return (
-                (d.name.toLowerCase().includes(q) || d.category.toLowerCase().includes(q)) &&
+                (name.includes(q) || cat.includes(q)) &&
                 (filterSev === 'ALL' || d.severity === filterSev) &&
                 (filterCat === 'ALL' || d.category === filterCat)
             );
@@ -281,14 +343,36 @@ export default function Diseases() {
             ? <ChevronUp size={12} color="var(--green-light)" />
             : <ChevronDown size={12} color="var(--green-light)" />;
 
-    const handleSave = data => {
-        if (data.id) setDiseases(p => p.map(d => d.id === data.id ? data : d));
-        else         setDiseases(p => [...p, { ...data, id: Date.now() }]);
+    const handleSave = async data => {
+        try {
+            const useMultipart = hasFile(data);
+            const payload = useMultipart ? toDiseaseFormData(data) : data;
+            let res;
+            if (data.id) {
+                res = await diseasesAPI.patch(data.id, payload);
+                const saved = res.data;
+                setDiseases(p => p.map(d => d.id === data.id ? saved : d));
+            } else {
+                res = await diseasesAPI.create(payload);
+                const created = res.data;
+                setDiseases(p => [...p, created]);
+            }
+        } catch (err) {
+            alert(err?.response?.data?.detail || err?.message || 'Failed to save disease');
+            return;
+        }
         setModal(null); setSelected(null);
     };
 
-    const handleDelete = () => {
-        setDiseases(p => p.filter(d => d.id !== selected.id));
+    const handleDelete = async () => {
+        if (!selected?.id) { setModal(null); setSelected(null); return; }
+        try {
+            await diseasesAPI.delete(selected.id);
+            setDiseases(p => p.filter(d => d.id !== selected.id));
+        } catch (err) {
+            alert(err?.response?.data?.detail || err?.message || 'Failed to delete disease');
+            return;
+        }
         setModal(null); setSelected(null);
     };
 
@@ -353,7 +437,22 @@ export default function Diseases() {
                         </tr>
                         </thead>
                         <tbody>
-                        {filtered.length === 0 ? (
+                        {loading ? (
+                            <tr><td colSpan={4}>
+                                <div className="dis-empty">
+                                    <div className="dis-empty-icon">⏳</div>
+                                    <div className="dis-empty-title">Loading…</div>
+                                </div>
+                            </td></tr>
+                        ) : loadError ? (
+                            <tr><td colSpan={4}>
+                                <div className="dis-empty">
+                                    <div className="dis-empty-icon">⚠️</div>
+                                    <div className="dis-empty-title">{loadError}</div>
+                                    <div className="dis-empty-sub">Check the backend is running.</div>
+                                </div>
+                            </td></tr>
+                        ) : filtered.length === 0 ? (
                             <tr><td colSpan={4}>
                                 <div className="dis-empty">
                                     <div className="dis-empty-icon">🌿</div>

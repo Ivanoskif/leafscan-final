@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import {
     TrendingUp, ScanLine, Bug, Target,
     Users, Calendar, Award, AlertTriangle
@@ -9,57 +9,19 @@ import {
     Tooltip, ResponsiveContainer
 } from 'recharts';
 import { useLang } from '../../context/LanguageContext';
+import { statisticsAPI } from '../../services/api';
 import './Statistics.css';
 
-const MONTHLY_ANALYSES = [
-    { month: 'Jan', analyses: 130, healthy: 54,  infected: 76  },
-    { month: 'Feb', analyses: 168, healthy: 71,  infected: 97  },
-    { month: 'Mar', analyses: 220, healthy: 98,  infected: 122 },
-    { month: 'Apr', analyses: 305, healthy: 140, infected: 165 },
-    { month: 'May', analyses: 288, healthy: 133, infected: 155 },
-    { month: 'Jun', analyses: 430, healthy: 204, infected: 226 },
-    { month: 'Jul', analyses: 325, healthy: 158, infected: 167 },
-    { month: 'Aug', analyses: 475, healthy: 231, infected: 244 },
-    { month: 'Sep', analyses: 390, healthy: 187, infected: 203 },
-    { month: 'Oct', analyses: 510, healthy: 252, infected: 258 },
-    { month: 'Nov', analyses: 460, healthy: 218, infected: 242 },
-    { month: 'Dec', analyses: 346, healthy: 160, infected: 186 },
-];
+const PIE_COLORS = ['#5C9E78', '#7CC49A', '#E8924A', '#F5C87A', '#7AB8F5', '#C084FC', '#3A7A56'];
 
-const DISEASE_BREAKDOWN = [
-    { name: 'Leaf Blight',      value: 312, color: '#5C9E78' },
-    { name: 'Powdery Mildew',   value: 198, color: '#7CC49A' },
-    { name: 'Root Rot',         value: 164, color: '#E8924A' },
-    { name: 'Rust Disease',     value: 127, color: '#F5C87A' },
-    { name: 'Bacterial Blight', value: 98,  color: '#7AB8F5' },
-    { name: 'Mosaic Virus',     value: 74,  color: '#C084FC' },
-];
-
-const PLANT_INFECTION_RATE = [
-    { plant: 'Tomato',  rate: 68 },
-    { plant: 'Potato',  rate: 54 },
-    { plant: 'Grape',   rate: 47 },
-    { plant: 'Corn',    rate: 38 },
-    { plant: 'Apple',   rate: 31 },
-    { plant: 'Pepper',  rate: 26 },
-    { plant: 'Wheat',   rate: 22 },
-    { plant: 'Rose',    rate: 19 },
-];
-
-const ACCURACY_TREND = [
-    { month: 'Jan', accuracy: 89.2 },
-    { month: 'Feb', accuracy: 90.1 },
-    { month: 'Mar', accuracy: 91.4 },
-    { month: 'Apr', accuracy: 91.8 },
-    { month: 'May', accuracy: 92.3 },
-    { month: 'Jun', accuracy: 93.0 },
-    { month: 'Jul', accuracy: 92.7 },
-    { month: 'Aug', accuracy: 93.5 },
-    { month: 'Sep', accuracy: 93.9 },
-    { month: 'Oct', accuracy: 94.2 },
-    { month: 'Nov', accuracy: 94.5 },
-    { month: 'Dec', accuracy: 94.7 },
-];
+const monthLabel = (iso) => {
+    if (!iso) return '';
+    try {
+        const d = new Date(iso);
+        if (!isNaN(d)) return d.toLocaleString('en-US', { month: 'short' });
+    } catch {}
+    return String(iso).slice(0, 7);
+};
 
 const CustomTooltip = ({ active, payload, label }) => {
     if (active && payload && payload.length) {
@@ -112,6 +74,28 @@ function StatCard({ label, value, trend, Icon, color }) {
 export default function Statistics() {
     const { t } = useLang();
     const [range, setRange] = useState('last12');
+    const [data,  setData]  = useState(null);
+    const [loading, setLoading] = useState(true);
+    const [error,   setError]   = useState('');
+
+    useEffect(() => {
+        let cancelled = false;
+        (async () => {
+            setLoading(true);
+            setError('');
+            try {
+                const res = await statisticsAPI.overview();
+                if (cancelled) return;
+                setData(res.data || null);
+            } catch (err) {
+                if (cancelled) return;
+                setError(err?.response?.data?.detail || err?.message || 'Failed to load statistics');
+            } finally {
+                if (!cancelled) setLoading(false);
+            }
+        })();
+        return () => { cancelled = true; };
+    }, []);
 
     const RANGE_OPTIONS = [
         { key: 'last6',  label: t('statistics.last6months')  || t('statistics.last7days') },
@@ -119,20 +103,66 @@ export default function Statistics() {
         { key: 'year',   label: t('statistics.last3months')  },
     ];
 
-    const TOP_STATS = [
-        { label: t('statistics.totalAnalyses'),    value: '3,847', trend: '+18.2%', Icon: ScanLine, color: 'green'  },
-        { label: t('dashboard.diseasesDetected'),  value: '973',   trend: '+11.4%', Icon: Bug,      color: 'orange' },
-        { label: t('statistics.avgConfidence'),    value: '92.8%', trend: '+3.6%',  Icon: Target,   color: 'teal'   },
-        { label: t('statistics.activePlants'),     value: '1,234', trend: '+8.2%',  Icon: Users,    color: 'blue'   },
-    ];
+    // Backend нема breakdown по healthy/infected. Користиме `count` ко проксија.
+    // Кога backend ке додаде split, само заменете го мапирањето.
+    const analysesByMonth = useMemo(() => {
+        const arr = data?.analyses_by_month || [];
+        return arr.map(m => ({
+            month:    monthLabel(m.month),
+            analyses: m.count ?? 0,
+            healthy:  m.healthy ?? 0,
+            infected: m.infected ?? 0,
+        }));
+    }, [data]);
 
     const displayData = range === 'last6'
-        ? MONTHLY_ANALYSES.slice(-6)
-        : MONTHLY_ANALYSES;
+        ? analysesByMonth.slice(-6)
+        : analysesByMonth;
 
+    const diseaseBreakdown = useMemo(() => {
+        const arr = data?.top_detected_diseases || [];
+        return arr.map((d, i) => ({
+            name:  d.name,
+            value: d.count ?? d.value ?? 0,
+            color: PIE_COLORS[i % PIE_COLORS.length],
+        }));
+    }, [data]);
+
+    const accuracyTrend = useMemo(() => {
+        const arr = data?.detection_accuracy || [];
+        return arr.map(m => ({
+            month:    monthLabel(m.month),
+            accuracy: typeof m.accuracy === 'number' ? m.accuracy : parseFloat(m.accuracy) || 0,
+        }));
+    }, [data]);
+
+    const userGrowth = useMemo(() => {
+        const arr = data?.user_growth || [];
+        return arr.map(m => ({ month: monthLabel(m.month), users: m.count ?? 0 }));
+    }, [data]);
+
+    // Derived top stats.
     const totalAnalyses = displayData.reduce((s, d) => s + d.analyses, 0);
     const totalInfected = displayData.reduce((s, d) => s + d.infected, 0);
-    const infectionRate = ((totalInfected / totalAnalyses) * 100).toFixed(1);
+    const infectionRate = totalAnalyses
+        ? ((totalInfected / totalAnalyses) * 100).toFixed(1)
+        : '0.0';
+    const diseasesDetected = diseaseBreakdown.reduce((s, d) => s + d.value, 0);
+    const avgConfidence = accuracyTrend.length
+        ? (accuracyTrend.reduce((s, a) => s + a.accuracy, 0) / accuracyTrend.length).toFixed(1)
+        : '—';
+    const totalUsers = userGrowth.reduce((s, u) => s + u.users, 0);
+
+    const TOP_STATS = [
+        { label: t('statistics.totalAnalyses'),    value: totalAnalyses.toLocaleString(),       trend: '—', Icon: ScanLine, color: 'green'  },
+        { label: t('dashboard.diseasesDetected'),  value: diseasesDetected.toLocaleString(),    trend: '—', Icon: Bug,      color: 'orange' },
+        { label: t('statistics.avgConfidence'),    value: avgConfidence === '—' ? '—' : `${avgConfidence}%`, trend: '—', Icon: Target, color: 'teal' },
+        { label: t('statistics.activePlants'),     value: totalUsers.toLocaleString(),          trend: '—', Icon: Users,    color: 'blue'   },
+    ];
+
+    // plantInfectionRate нема backend endpoint засега — се покрива со /statistics/top-detected-diseases/
+    // (по болест, не по растение). Останува empty.
+    const plantInfectionRate = [];
 
     return (
         <div className="statistics-page">
@@ -197,13 +227,13 @@ export default function Statistics() {
                     <ResponsiveContainer width="100%" height={200}>
                         <PieChart>
                             <Pie
-                                data={DISEASE_BREAKDOWN}
+                                data={diseaseBreakdown}
                                 cx="50%" cy="50%"
                                 innerRadius={55} outerRadius={85}
                                 paddingAngle={3}
                                 dataKey="value"
                             >
-                                {DISEASE_BREAKDOWN.map((entry, i) => (
+                                {diseaseBreakdown.map((entry, i) => (
                                     <Cell key={i} fill={entry.color} />
                                 ))}
                             </Pie>
@@ -214,7 +244,7 @@ export default function Statistics() {
                         </PieChart>
                     </ResponsiveContainer>
                     <div className="pie-legend">
-                        {DISEASE_BREAKDOWN.map(d => (
+                        {diseaseBreakdown.map(d => (
                             <div key={d.name} className="pie-legend-item">
                                 <span className="pie-legend-dot" style={{ background: d.color }} />
                                 <span className="pie-legend-name">{d.name}</span>
@@ -234,7 +264,7 @@ export default function Statistics() {
                     </div>
                     <ResponsiveContainer width="100%" height={260}>
                         <BarChart
-                            data={PLANT_INFECTION_RATE}
+                            data={plantInfectionRate}
                             layout="vertical"
                             margin={{ top: 0, right: 16, left: 10, bottom: 0 }}
                         >
@@ -246,7 +276,7 @@ export default function Statistics() {
                                 contentStyle={{ background: '#1E2923', border: '1px solid #243028', borderRadius: 10, fontSize: 13 }}
                             />
                             <Bar dataKey="rate" radius={[0, 6, 6, 0]}>
-                                {PLANT_INFECTION_RATE.map((_, i) => (
+                                {plantInfectionRate.map((_, i) => (
                                     <Cell key={i} fill={i % 2 === 0 ? '#5C9E78' : '#7CC49A'} />
                                 ))}
                             </Bar>
@@ -259,11 +289,11 @@ export default function Statistics() {
                         <h2 className="dash-card-title">Model Accuracy Trend</h2>
                         <div className="stat-accuracy-badge">
                             <Award size={13} strokeWidth={2} />
-                            Current: 94.7%
+                            Current: {accuracyTrend.length ? `${accuracyTrend[accuracyTrend.length - 1].accuracy.toFixed(1)}%` : '—'}
                         </div>
                     </div>
                     <ResponsiveContainer width="100%" height={260}>
-                        <LineChart data={ACCURACY_TREND} margin={{ top: 8, right: 16, left: -10, bottom: 0 }}>
+                        <LineChart data={accuracyTrend} margin={{ top: 8, right: 16, left: -10, bottom: 0 }}>
                             <CartesianGrid strokeDasharray="3 3" stroke="#243028" />
                             <XAxis dataKey="month" tick={{ fontSize: 12, fill: '#7A9080' }} axisLine={false} tickLine={false} />
                             <YAxis domain={[88, 96]} tick={{ fontSize: 12, fill: '#7A9080' }} axisLine={false} tickLine={false} unit="%" />

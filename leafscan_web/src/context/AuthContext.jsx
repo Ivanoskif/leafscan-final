@@ -1,4 +1,5 @@
 import { createContext, useContext, useState, useCallback } from 'react';
+import { authAPI, tokenStorage } from '../services/api';
 
 const AuthContext = createContext(null);
 
@@ -16,9 +17,17 @@ export function AuthProvider({ children }) {
     setUser(usr);
   }, []);
 
-  const logout = useCallback(() => {
-    localStorage.removeItem('ls_token');
-    localStorage.removeItem('ls_user');
+  const logout = useCallback(async () => {
+    // Пред да го исчистиме state-от, обиди се да го blacklist-наш refresh токенот.
+    const refresh = tokenStorage.getRefresh();
+    if (refresh) {
+      try {
+        await authAPI.logout(refresh);
+      } catch {
+        // Игнорирај backend грешки — секако ги бришеме токените локално.
+      }
+    }
+    tokenStorage.clear();
     setToken(null);
     setUser(null);
   }, []);

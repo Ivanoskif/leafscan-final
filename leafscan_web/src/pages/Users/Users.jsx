@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import {
     Search, X, Trash2, Pencil, Plus,
     ChevronUp, ChevronDown, AlertTriangle,
@@ -6,7 +6,37 @@ import {
 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { useLang } from '../../context/LanguageContext';
+import { usersAPI } from '../../services/api';
 import './Users.css';
+
+// Backend полето е `full_name` / `created_at`. UI-то користи `name` / `created` / `status`.
+// `status` не постои на backend (нема is_active во сериализаторот) — default на 'ACTIVE'.
+function normalizeUser(u) {
+    return {
+        id: u.id,
+        name: u.full_name || u.username || '',
+        email: u.email,
+        role: u.role,
+        status: 'ACTIVE',
+        created: u.created_at ? String(u.created_at).slice(0, 10) : '',
+        _raw: u,
+    };
+}
+
+function denormalizeUser(data) {
+    const out = {};
+    if (data.name)  out.full_name = data.name;
+    if (data.email) out.email     = data.email;
+    if (data.role)  out.role      = data.role;
+    return out;
+}
+
+function unwrapList(resp) {
+    const d = resp?.data;
+    if (Array.isArray(d)) return d;
+    if (Array.isArray(d?.results)) return d.results;
+    return [];
+}
 
 const MOCK_USERS = [
     { id: 1, name: 'John Doe',      email: 'john@leafscan.ai',  role: 'ADMIN', status: 'ACTIVE',   created: '2026-01-15' },
@@ -290,7 +320,9 @@ function DeleteModal({ user, onConfirm, onCancel, t }) {
 export default function Users() {
     const navigate   = useNavigate();
     const { t }      = useLang();
-    const [users,    setUsers]    = useState(MOCK_USERS);
+    const [users,    setUsers]    = useState([]);
+    const [loading,  setLoading]  = useState(true);
+    const [loadError,setLoadError]= useState('');
     const [search,   setSearch]   = useState('');
     const [filter,   setFilter]   = useState('ALL');
     const [sortKey,  setSortKey]  = useState('id');
@@ -298,10 +330,31 @@ export default function Users() {
     const [modal,    setModal]    = useState(null);
     const [selected, setSelected] = useState(null);
 
+    useEffect(() => {
+        let cancelled = false;
+        (async () => {
+            setLoading(true);
+            setLoadError('');
+            try {
+                const res = await usersAPI.getAll();
+                if (cancelled) return;
+                setUsers(unwrapList(res).map(normalizeUser));
+            } catch (err) {
+                if (cancelled) return;
+                setLoadError(err?.response?.data?.detail || err?.message || 'Failed to load users');
+            } finally {
+                if (!cancelled) setLoading(false);
+            }
+        })();
+        return () => { cancelled = true; };
+    }, []);
+
     const filtered = users
         .filter(u => {
             const q = search.toLowerCase();
-            const matchSearch = u.name.toLowerCase().includes(q) || u.email.toLowerCase().includes(q);
+            const name  = (u.name  || '').toLowerCase();
+            const email = (u.email || '').toLowerCase();
+            const matchSearch = name.includes(q) || email.includes(q);
             const matchFilter =
                 filter === 'ALL'      ? true :
                     filter === 'ADMIN'    ? u.role   === 'ADMIN'    :
@@ -333,14 +386,38 @@ export default function Users() {
         navigate('/analyses', { state: { userId: user.id, userName: user.name } });
     };
 
-    const handleSave = data => {
-        if (data.id) setUsers(p => p.map(u => u.id === data.id ? { ...u, ...data } : u));
-        else setUsers(p => [...p, { ...data, id: Date.now(), created: new Date().toISOString().slice(0, 10) }]);
+    const handleSave = async data => {
+        try {
+            if (data.id) {
+                const res = await usersAPI.update(data.id, denormalizeUser(data));
+                const updated = normalizeUser(res.data);
+                setUsers(p => p.map(u => u.id === data.id ? updated : u));
+            } else {
+                // Create нема password во формата засега — backend ќе врати 400.
+                const res = await usersAPI.create(denormalizeUser(data));
+                setUsers(p => [...p, normalizeUser(res.data)]);
+            }
+        } catch (err) {
+            const data = err?.response?.data;
+            const msg = data?.detail
+                || (typeof data === 'object' ? JSON.stringify(data) : null)
+                || err?.message
+                || 'Failed to save user';
+            alert(msg);
+            return;
+        }
         setModal(null); setSelected(null);
     };
 
-    const handleDelete = () => {
-        setUsers(p => p.filter(u => u.id !== selected.id));
+    const handleDelete = async () => {
+        if (!selected?.id) { setModal(null); setSelected(null); return; }
+        try {
+            await usersAPI.delete(selected.id);
+            setUsers(p => p.filter(u => u.id !== selected.id));
+        } catch (err) {
+            alert(err?.response?.data?.detail || err?.message || 'Failed to delete user');
+            return;
+        }
         setModal(null); setSelected(null);
     };
 
@@ -417,7 +494,22 @@ export default function Users() {
                         </tr>
                         </thead>
                         <tbody>
-                        {filtered.length === 0 ? (
+                        {loading ? (
+                            <tr><td colSpan={7}>
+                                <div className="dis-empty">
+                                    <div className="dis-empty-icon">⏳</div>
+                                    <div className="dis-empty-title">Loading…</div>
+                                </div>
+                            </td></tr>
+                        ) : loadError ? (
+                            <tr><td colSpan={7}>
+                                <div className="dis-empty">
+                                    <div className="dis-empty-icon">⚠️</div>
+                                    <div className="dis-empty-title">{loadError}</div>
+                                    <div className="dis-empty-sub">Admin only — make sure you're logged in as ADMIN.</div>
+                                </div>
+                            </td></tr>
+                        ) : filtered.length === 0 ? (
                             <tr><td colSpan={7}>
                                 <div className="dis-empty">
                                     <div className="dis-empty-icon">👤</div>

@@ -1,8 +1,34 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { Search, X, Eye, Trash2, Download, ChevronUp, ChevronDown, AlertTriangle, FileText, Activity, Leaf, UserCircle } from 'lucide-react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { useLang } from '../../context/LanguageContext';
+import { analysesAPI, usersAPI } from '../../services/api';
 import './AnalysisHistory.css';
+
+// Backend (AnalysisListSerializer) полиња → UI shape што код-от веќе го очекува.
+function normalizeAnalysis(a) {
+    return {
+        id: a.id,
+        key: a.analysis_key || `AN-${a.id}`,
+        userId: null,            // не се изложува на list endpointот; filter се прави server-side
+        userName: a.user_full_name,
+        plant: a.plant_name || '',
+        disease: a.disease_name || null,
+        confidence: typeof a.confidence === 'number'
+            ? a.confidence
+            : parseFloat(a.confidence) || 0,
+        result: a.result_label || (a.disease_name ? 'INFECTED' : 'HEALTHY'),
+        date: a.created_at ? String(a.created_at).slice(0, 10) : '',
+        image: a.image || null,
+    };
+}
+
+function unwrapList(resp) {
+    const d = resp?.data;
+    if (Array.isArray(d)) return d;
+    if (Array.isArray(d?.results)) return d.results;
+    return [];
+}
 
 const MOCK_ANALYSES = [
   { id: 1,  key: 'AN-2847', userId: 1, plant: 'Tomato',     disease: 'Leaf Blight',    confidence: 94.2, result: 'INFECTED', date: '2026-05-07' },
@@ -121,7 +147,9 @@ export default function AnalysisHistory() {
   const { t }      = useLang();
   const userFilter = location.state?.userId   || null;
   const userName   = location.state?.userName || null;
-  const [analyses, setAnalyses] = useState(MOCK_ANALYSES);
+  const [analyses, setAnalyses] = useState([]);
+  const [loading,  setLoading]  = useState(true);
+  const [loadError,setLoadError]= useState('');
   const [search,   setSearch]   = useState('');
   const [filter,   setFilter]   = useState('ALL');
   const [sortKey,  setSortKey]  = useState('id');
@@ -129,18 +157,40 @@ export default function AnalysisHistory() {
   const [modal,    setModal]    = useState(null);
   const [selected, setSelected] = useState(null);
 
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      setLoading(true);
+      setLoadError('');
+      try {
+        // Ако сме дојдени од Users → конкретен корисник, повикај го per-user endpointот.
+        // Инаку — admin листа на сите.
+        const res = userFilter
+            ? await usersAPI.getAnalyses(userFilter)
+            : await analysesAPI.getAll();
+        if (cancelled) return;
+        setAnalyses(unwrapList(res).map(normalizeAnalysis));
+      } catch (err) {
+        if (cancelled) return;
+        setLoadError(err?.response?.data?.detail || err?.message || 'Failed to load analyses');
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [userFilter]);
+
   const filtered = analyses
       .filter(a => {
         const q = search.toLowerCase();
-        const matchSearch = a.key.toLowerCase().includes(q) ||
-            a.plant.toLowerCase().includes(q) ||
+        const matchSearch = (a.key || '').toLowerCase().includes(q) ||
+            (a.plant || '').toLowerCase().includes(q) ||
             (a.disease || '').toLowerCase().includes(q);
         const matchFilter =
             filter === 'ALL'      ? true :
                 filter === 'HEALTHY'  ? a.result === 'HEALTHY' :
                     filter === 'INFECTED' ? a.result === 'INFECTED' : true;
-        const matchUser = userFilter ? a.userId === userFilter : true;
-        return matchSearch && matchFilter && matchUser;
+        return matchSearch && matchFilter;
       })
       .sort((a, b) => {
         const av = a[sortKey], bv = b[sortKey];
@@ -161,8 +211,15 @@ export default function AnalysisHistory() {
           ? <ChevronUp size={12} color="var(--green-light)" />
           : <ChevronDown size={12} color="var(--green-light)" />;
 
-  const handleDelete = () => {
-    setAnalyses(p => p.filter(a => a.id !== selected.id));
+  const handleDelete = async () => {
+    if (!selected?.id) { setModal(null); setSelected(null); return; }
+    try {
+      await analysesAPI.delete(selected.id);
+      setAnalyses(p => p.filter(a => a.id !== selected.id));
+    } catch (err) {
+      alert(err?.response?.data?.detail || err?.message || 'Failed to delete analysis');
+      return;
+    }
     setModal(null); setSelected(null);
   };
 
@@ -248,7 +305,22 @@ export default function AnalysisHistory() {
               </tr>
               </thead>
               <tbody>
-              {filtered.length === 0 ? (
+              {loading ? (
+                  <tr><td colSpan={7}>
+                    <div className="dis-empty">
+                      <div className="dis-empty-icon">⏳</div>
+                      <div className="dis-empty-title">Loading…</div>
+                    </div>
+                  </td></tr>
+              ) : loadError ? (
+                  <tr><td colSpan={7}>
+                    <div className="dis-empty">
+                      <div className="dis-empty-icon">⚠️</div>
+                      <div className="dis-empty-title">{loadError}</div>
+                      <div className="dis-empty-sub">Admin only — log in as ADMIN.</div>
+                    </div>
+                  </td></tr>
+              ) : filtered.length === 0 ? (
                   <tr><td colSpan={7}>
                     <div className="dis-empty">
                       <div className="dis-empty-icon">🔬</div>

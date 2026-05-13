@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
+import { authAPI, tokenStorage } from '../../services/api';
 import { Leaf, CheckCircle } from 'lucide-react';
 import './Login.css';
 
@@ -24,11 +25,29 @@ export default function Login() {
         setError('');
         if (!email || !password) { setError('Please fill in all fields.'); return; }
         setLoading(true);
-        // LATER: replace with → authAPI.login({ email, password })
-        setTimeout(() => {
-            login('mock-jwt-token', { full_name: 'Admin', email, role: 'ADMIN' });
+
+        try {
+            const res = await authAPI.login({ email, password });
+            const { access, refresh, user } = res.data || {};
+            if (!access || !refresh) {
+                throw new Error('Login response missing tokens');
+            }
+            // Чувај access + refresh во localStorage.
+            tokenStorage.setBoth(access, refresh);
+            // Notify AuthContext (state + ls_token + ls_user).
+            login(access, user || { email });
             navigate('/dashboard');
-        }, 700);
+        } catch (err) {
+            const detail =
+                err?.response?.data?.detail ||
+                err?.response?.data?.email ||
+                err?.response?.data?.password ||
+                err?.message ||
+                'Invalid email or password.';
+            setError(Array.isArray(detail) ? detail[0] : String(detail));
+        } finally {
+            setLoading(false);
+        }
     };
 
     return (
