@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
+import { jwtAPI } from '../../services/api';
 import { Leaf, CheckCircle } from 'lucide-react';
 import './Login.css';
 
@@ -12,8 +13,8 @@ const FEATURES = [
 ];
 
 export default function Login() {
-    const [email,    setEmail]    = useState('admin@leafscan.ai');
-    const [password, setPassword] = useState('admin123');
+    const [email,    setEmail]    = useState('');
+    const [password, setPassword] = useState('');
     const [error,    setError]    = useState('');
     const [loading,  setLoading]  = useState(false);
     const { login } = useAuth();
@@ -24,16 +25,35 @@ export default function Login() {
         setError('');
         if (!email || !password) { setError('Please fill in all fields.'); return; }
         setLoading(true);
-        // LATER: replace with → authAPI.login({ email, password })
-        setTimeout(() => {
-            login('mock-jwt-token', { full_name: 'Admin', email, role: 'ADMIN' });
+        try {
+            // POST /api/jwt-auth/login/ → враќа access + refresh
+            const res = await jwtAPI.login({ email, password });
+            const { access, refresh } = res.data;
+
+            // Зачувај токени
+            localStorage.setItem('ls_token',   access);
+            localStorage.setItem('ls_refresh',  refresh);
+
+            // Земи податоци за најавениот user
+            // Треба да го setнеме токенот пред да повикаме me()
+            const meRes = await jwtAPI.me();
+            login(access, meRes.data);
+
             navigate('/dashboard');
-        }, 700);
+        } catch (err) {
+            console.error('Login error:', err);
+            setError(
+                err.response?.data?.detail ||
+                err.response?.data?.non_field_errors?.[0] ||
+                'Invalid email or password.'
+            );
+        } finally {
+            setLoading(false);
+        }
     };
 
     return (
         <div className="login-page">
-            {/* Left */}
             <div className="login-left">
                 <div className="login-brand">
                     <div className="login-brand-icon">
@@ -57,7 +77,6 @@ export default function Login() {
                 </div>
             </div>
 
-            {/* Right */}
             <div className="login-right">
                 <div className="login-card">
                     <div className="login-card-header">

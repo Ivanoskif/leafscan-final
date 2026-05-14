@@ -1,73 +1,32 @@
+import { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
-import {
-    ScanLine, Users, Bug, Target,
-    TrendingUp, ArrowRight
-} from 'lucide-react';
+import { ScanLine, Users, Bug, Target, TrendingUp, ArrowRight } from 'lucide-react';
 import {
     LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
-    PieChart, Pie, Cell, Legend,
-    BarChart, Bar
+    PieChart, Pie, Cell, Legend, BarChart, Bar
 } from 'recharts';
+import { dashboardAPI } from '../../services/api';
 import { useLang } from '../../context/LanguageContext';
 import './Dashboard.css';
 
-// ── Mock data ─────────────────────────────────────────────────────────────────
-const MONTHLY_TREND = [
-    { month: 'Jan', count: 130 },
-    { month: 'Feb', count: 168 },
-    { month: 'Mar', count: 220 },
-    { month: 'Apr', count: 305 },
-    { month: 'May', count: 288 },
-    { month: 'Jun', count: 430 },
-    { month: 'Jul', count: 325 },
-    { month: 'Aug', count: 475 },
-];
+const DISEASE_COLORS = ['#5C9E78','#7CC49A','#E8924A','#F5C87A','#A8D5B5'];
 
-const DISEASE_DIST = [
-    { name: 'Leaf Blight',    value: 35, color: '#5C9E78' },
-    { name: 'Powdery Mildew', value: 22, color: '#7CC49A' },
-    { name: 'Root Rot',       value: 18, color: '#E8924A' },
-    { name: 'Rust',           value: 14, color: '#F5C87A' },
-    { name: 'Healthy',        value: 11, color: '#A8D5B5' },
-];
-
-const RECENT_ANALYSES = [
-    { id: 'AN-2847', plant: 'Tomato', disease: '—',              confidence: '94.2%', result: 'INFECTED' },
-    { id: 'AN-2846', plant: 'Potato', disease: '—',              confidence: '98.1%', result: 'HEALTHY'  },
-    { id: 'AN-2845', plant: 'Corn',   disease: 'Rust',           confidence: '87.5%', result: 'INFECTED' },
-    { id: 'AN-2844', plant: 'Grape',  disease: 'Powdery Mildew', confidence: '91.3%', result: 'INFECTED' },
-    { id: 'AN-2843', plant: 'Apple',  disease: '—',              confidence: '96.7%', result: 'HEALTHY'  },
-];
-
-const TOP_PLANTS = [
-    { plant: 'Tomato', count: 152 },
-    { plant: 'Potato', count: 118 },
-    { plant: 'Corn',   count: 97  },
-    { plant: 'Grape',  count: 84  },
-    { plant: 'Apple',  count: 61  },
-    { plant: 'Pepper', count: 43  },
-];
-
-// ── Stat card ─────────────────────────────────────────────────────────────────
 function StatCard({ label, value, trend, Icon, color }) {
     return (
         <div className={`dash-stat dash-stat--${color}`}>
             <div className="dash-stat-left">
                 <div className="dash-stat-label">{label}</div>
-                <div className="dash-stat-value">{value}</div>
-                <div className="dash-stat-trend">
+                <div className="dash-stat-value">{value ?? '—'}</div>
+                {trend && <div className="dash-stat-trend">
                     <TrendingUp size={11} strokeWidth={2} style={{ display:'inline', marginRight:3 }} />
                     {trend}
-                </div>
+                </div>}
             </div>
-            <div className="dash-stat-icon">
-                <Icon size={22} strokeWidth={1.8} />
-            </div>
+            <div className="dash-stat-icon"><Icon size={22} strokeWidth={1.8} /></div>
         </div>
     );
 }
 
-// ── Result badge ──────────────────────────────────────────────────────────────
 function ResultBadge({ result, t }) {
     const isHealthy = result === 'HEALTHY';
     return (
@@ -77,7 +36,6 @@ function ResultBadge({ result, t }) {
     );
 }
 
-// ── Custom tooltip ─────────────────────────────────────────────────────────────
 const CustomTooltip = ({ active, payload, label }) => {
     if (active && payload && payload.length) {
         return (
@@ -90,57 +48,78 @@ const CustomTooltip = ({ active, payload, label }) => {
     return null;
 };
 
-// ── Dashboard ─────────────────────────────────────────────────────────────────
 export default function Dashboard() {
     const { t } = useLang();
+    const [summary,        setSummary]        = useState(null);
+    const [monthlyTrend,   setMonthlyTrend]   = useState([]);
+    const [diseaseDist,    setDiseaseDist]     = useState([]);
+    const [recentAnalyses, setRecentAnalyses]  = useState([]);
+    const [topDiseases,    setTopDiseases]     = useState([]);
+    const [loading,        setLoading]         = useState(true);
+
+    useEffect(() => {
+        const load = async () => {
+            try {
+                const [sumRes, trendRes, distRes, recentRes, topRes] = await Promise.all([
+                    dashboardAPI.getSummary(),
+                    dashboardAPI.getMonthlyTrend(),
+                    dashboardAPI.getDiseaseDistribution(),
+                    dashboardAPI.getRecentAnalyses(),
+                    dashboardAPI.getTopDetectedDiseases(),
+                ]);
+                setSummary(sumRes.data);
+                setMonthlyTrend(trendRes.data);
+                setDiseaseDist(distRes.data.map((d, i) => ({ ...d, color: DISEASE_COLORS[i % DISEASE_COLORS.length] })));
+                setRecentAnalyses(recentRes.data);
+                setTopDiseases(topRes.data);
+            } catch (err) {
+                console.error('Dashboard load error:', err);
+            } finally {
+                setLoading(false);
+            }
+        };
+        load();
+    }, []);
 
     const STATS = [
-        { label: t('dashboard.totalAnalyses'),    value: '2,847', trend: '+12.5%', Icon: ScanLine, color: 'green'  },
-        { label: t('dashboard.totalUsers'),       value: '1,234', trend: '+8.2%',  Icon: Users,    color: 'blue'   },
-        { label: t('dashboard.diseasesDetected'), value: '47',    trend: '+3',     Icon: Bug,      color: 'orange' },
-        { label: t('dashboard.accuracyRate'),     value: '94.7%', trend: '+1.2%',  Icon: Target,   color: 'teal'   },
+        { label: t('dashboard.totalAnalyses'),    value: summary?.total_analyses,    Icon: ScanLine, color: 'green'  },
+        { label: t('dashboard.totalUsers'),       value: summary?.total_users,       Icon: Users,    color: 'blue'   },
+        { label: t('dashboard.diseasesDetected'), value: summary?.diseases_detected, Icon: Bug,      color: 'orange' },
+        { label: t('dashboard.accuracyRate'),     value: summary?.accuracy_rate,     Icon: Target,   color: 'teal'   },
     ];
+
+    if (loading) return <div className="dash-loading">Loading dashboard...</div>;
 
     return (
         <div className="dashboard">
-            {/* Header */}
             <div className="dashboard-header">
                 <div>
                     <h1 className="dashboard-title">{t('dashboard.title')}</h1>
                     <p className="dashboard-subtitle">{t('dashboard.subtitle')}</p>
                 </div>
                 <div className="dashboard-date">
-                    {new Date().toLocaleDateString('en-US', {
-                        weekday: 'long', year: 'numeric', month: 'long', day: 'numeric'
-                    })}
+                    {new Date().toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}
                 </div>
             </div>
 
-            {/* Stats */}
             <div className="dash-stats-grid">
                 {STATS.map(s => <StatCard key={s.label} {...s} />)}
             </div>
 
-            {/* Charts row 1 */}
             <div className="dash-charts-row">
                 <div className="dash-card dash-card--wide">
                     <div className="dash-card-header">
                         <h2 className="dash-card-title">{t('dashboard.monthlyTrend')}</h2>
                     </div>
                     <ResponsiveContainer width="100%" height={260}>
-                        <LineChart data={MONTHLY_TREND} margin={{ top: 8, right: 16, left: -10, bottom: 0 }}>
-                            <CartesianGrid strokeDasharray="3 3" stroke="#243028" />
-                            <XAxis dataKey="month" tick={{ fontSize: 12, fill: '#7A9080' }} axisLine={false} tickLine={false} />
-                            <YAxis tick={{ fontSize: 12, fill: '#7A9080' }} axisLine={false} tickLine={false} />
+                        <LineChart data={monthlyTrend} margin={{ top: 8, right: 16, left: -10, bottom: 0 }}>
+                            <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" />
+                            <XAxis dataKey="month" tick={{ fontSize: 12, fill: 'var(--text-muted)' }} axisLine={false} tickLine={false} />
+                            <YAxis tick={{ fontSize: 12, fill: 'var(--text-muted)' }} axisLine={false} tickLine={false} />
                             <Tooltip content={<CustomTooltip />} />
-                            <Line
-                                type="monotone"
-                                dataKey="count"
-                                stroke="#5C9E78"
-                                strokeWidth={2.5}
-                                dot={{ fill: '#5C9E78', r: 4, strokeWidth: 0 }}
-                                activeDot={{ r: 6, fill: '#7CC49A', strokeWidth: 0 }}
-                            />
+                            <Line type="monotone" dataKey="count" stroke="#5C9E78" strokeWidth={2.5}
+                                  dot={{ fill: '#5C9E78', r: 4, strokeWidth: 0 }}
+                                  activeDot={{ r: 6, fill: '#7CC49A', strokeWidth: 0 }} />
                         </LineChart>
                     </ResponsiveContainer>
                 </div>
@@ -151,28 +130,16 @@ export default function Dashboard() {
                     </div>
                     <ResponsiveContainer width="100%" height={260}>
                         <PieChart>
-                            <Pie
-                                data={DISEASE_DIST}
-                                cx="50%" cy="50%"
-                                innerRadius={55} outerRadius={85}
-                                paddingAngle={3}
-                                dataKey="value"
-                            >
-                                {DISEASE_DIST.map((entry, i) => (
-                                    <Cell key={i} fill={entry.color} />
-                                ))}
+                            <Pie data={diseaseDist} cx="50%" cy="42%" innerRadius={65} outerRadius={100} paddingAngle={3} dataKey="value">
+                                {diseaseDist.map((entry, i) => <Cell key={i} fill={entry.color} />)}
                             </Pie>
-                            <Legend
-                                iconType="circle" iconSize={8}
-                                formatter={val => <span style={{ fontSize: 12, color: '#7A9080' }}>{val}</span>}
-                            />
-                            <Tooltip formatter={val => `${val}%`} contentStyle={{ background: '#1E2923', border: '1px solid #243028', borderRadius: 10, fontSize: 13 }} />
+                            <Legend iconType="circle" iconSize={8} formatter={val => <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>{val}</span>} />
+                            <Tooltip contentStyle={{ background: 'var(--card)', border: '1px solid var(--border)', borderRadius: 10, fontSize: 13 }} />
                         </PieChart>
                     </ResponsiveContainer>
                 </div>
             </div>
 
-            {/* Charts row 2 */}
             <div className="dash-charts-row">
                 <div className="dash-card dash-card--wide">
                     <div className="dash-card-header">
@@ -193,13 +160,13 @@ export default function Dashboard() {
                             </tr>
                             </thead>
                             <tbody>
-                            {RECENT_ANALYSES.map(row => (
+                            {recentAnalyses.map(row => (
                                 <tr key={row.id}>
-                                    <td className="dash-table-id">{row.id}</td>
-                                    <td>{row.plant}</td>
-                                    <td className="dash-table-disease">{row.disease}</td>
-                                    <td>{row.confidence}</td>
-                                    <td><ResultBadge result={row.result} t={t} /></td>
+                                    <td className="dash-table-id">{row.analysis_key}</td>
+                                    <td>{row.plant?.name || row.plant_name || '—'}</td>
+                                    <td className="dash-table-disease">{row.disease?.name || row.disease_name || '—'}</td>
+                                    <td>{row.confidence ? `${(row.confidence * 100).toFixed(1)}%` : '—'}</td>
+                                    <td><ResultBadge result={row.result_label} t={t} /></td>
                                 </tr>
                             ))}
                             </tbody>
@@ -212,15 +179,11 @@ export default function Dashboard() {
                         <h2 className="dash-card-title">{t('dashboard.topDetected')}</h2>
                     </div>
                     <ResponsiveContainer width="100%" height={260}>
-                        <BarChart
-                            data={TOP_PLANTS}
-                            layout="vertical"
-                            margin={{ top: 0, right: 16, left: 10, bottom: 0 }}
-                        >
-                            <CartesianGrid strokeDasharray="3 3" stroke="#243028" horizontal={false} />
-                            <XAxis type="number" tick={{ fontSize: 11, fill: '#7A9080' }} axisLine={false} tickLine={false} />
-                            <YAxis dataKey="plant" type="category" tick={{ fontSize: 12, fill: '#7A9080' }} axisLine={false} tickLine={false} width={50} />
-                            <Tooltip contentStyle={{ background: '#1E2923', border: '1px solid #243028', borderRadius: 10, fontSize: 13 }} />
+                        <BarChart data={topDiseases} layout="vertical" margin={{ top: 0, right: 16, left: 10, bottom: 0 }}>
+                            <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" horizontal={false} />
+                            <XAxis type="number" tick={{ fontSize: 11, fill: 'var(--text-muted)' }} axisLine={false} tickLine={false} />
+                            <YAxis dataKey="name" type="category" tick={{ fontSize: 12, fill: 'var(--text-muted)' }} axisLine={false} tickLine={false} width={90} />
+                            <Tooltip contentStyle={{ background: 'var(--card)', border: '1px solid var(--border)', borderRadius: 10, fontSize: 13 }} />
                             <Bar dataKey="count" fill="#7CC49A" radius={[0, 6, 6, 0]} />
                         </BarChart>
                     </ResponsiveContainer>

@@ -10,6 +10,8 @@ class AnalysisListSerializer(serializers.ModelSerializer):
     user_full_name = serializers.CharField(source="user.full_name", read_only=True)
     plant_name = serializers.CharField(source="plant.name", read_only=True)
     disease_name = serializers.CharField(source="disease.name", read_only=True)
+    plant_id = serializers.IntegerField(source="plant.id", read_only=True)
+    disease_id = serializers.IntegerField(source="disease.id", read_only=True)
 
     class Meta:
         model = Analysis
@@ -20,6 +22,8 @@ class AnalysisListSerializer(serializers.ModelSerializer):
             "user_full_name",
             "plant_name",
             "disease_name",
+            "plant_id",
+            "disease_id",
             "confidence",
             "result_label",
             "created_at",
