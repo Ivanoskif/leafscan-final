@@ -239,17 +239,26 @@ def scan_plant(request):
                 },
                 status=status.HTTP_400_BAD_REQUEST
             )
+        disease, created = Disease.objects.get_or_create(
+            name__iexact=disease_name,
+            defaults={
+                "name": disease_name,
+                "category": "FUNGAL",
+                "severity": "MEDIUM",
+                "description": f"AI detected disease: {disease_name}",
+            }
+        )
 
-        disease = Disease.objects.filter(name__iexact=disease_name).first()
-
-        if not disease:
-            return Response(
-                {
-                    "disease": f"Disease '{disease_name}' does not exist in database.",
-                    "prediction": prediction,
-                },
-                status=status.HTTP_404_NOT_FOUND
-            )
+        # disease = Disease.objects.filter(name__iexact=disease_name).first()
+        #
+        # if not disease:
+        #     return Response(
+        #         {
+        #             "disease": f"Disease '{disease_name}' does not exist in database.",
+        #             "prediction": prediction,
+        #         },
+        #         status=status.HTTP_404_NOT_FOUND
+        #     )
 
     analysis = Analysis.objects.create(
         analysis_key=generate_analysis_key(),
